@@ -6,6 +6,7 @@ import google.generativeai as genai
 from mem0 import MemoryClient
 from dotenv import load_dotenv
 load_dotenv()  # Loads variables from .env into environment
+from google_fit import authenticate_google_fit, fetch_step_count, fetch_token, get_auth_url
 
 # --------------------------
 # AssemblyAI for transcription
@@ -14,6 +15,7 @@ import assemblyai as aai
 
 ASSEMBLY_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")  
 aai.settings.api_key = ASSEMBLY_API_KEY
+SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
 
 
 def transcribe_audio(audio_bytes) -> str:
@@ -86,10 +88,16 @@ class DiabetesHealthAssistant:
         mem0_memories = [r.get("message", {}).get("content", r.get("memory", "")) for r in search_results]
         context = "\n".join(mem0_memories)
 
+        # Include Google Fit data if available
+        fit_context = ""
+        if st.session_state.get("fit_creds") and st.session_state.get("fit_steps") is not None:
+            fit_context = f"\nUser's recent step count: {st.session_state.fit_steps} steps"
+
         prompt = f"""
         You are a diabetes-friendly AI assistant.
         Context from user memory:
         {context}
+        {fit_context}
 
         Query: {query_en}
         Respond in {selected_language}.
@@ -135,6 +143,58 @@ def main():
                 st.session_state.language = language
                 st.success("APIs initialized!")
 
+        # --------------------------
+        # Google Fit Auth (only show after APIs init)
+        # --------------------------
+        if getattr(st.session_state.assistant, "client", None):
+            st.markdown("---")
+            st.header("🏃 Google Fit Integration")
+
+            # Load existing credentials if available
+            if "fit_creds" not in st.session_state:
+                st.session_state.fit_creds = authenticate_google_fit()
+            if "fit_steps" not in st.session_state:
+                st.session_state.fit_steps = None
+
+            if not st.session_state.fit_creds:
+                # Check for authorization code in query params (after redirect)
+                if "code" in st.query_params:
+                    auth_code = st.query_params["code"][0]
+                    try:
+                        creds = fetch_token(auth_code)
+                        st.session_state.fit_creds = creds
+                        with open('token.json', 'w') as token:
+                            token.write(creds.to_json())
+                        del st.query_params["code"]
+                        st.success("Google Fit connected successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Authorization failed: {e}")
+                        del st.query_params["code"]
+                else:
+                    # Show authorization link
+                    auth_url = get_auth_url()
+                    st.markdown(f"**[🔗 Click here to authorize Google Fit access]({auth_url})**")
+                    st.info("After authorizing, you will be redirected back to this app.")
+            else:
+                st.success("✅ Google Fit connected")
+                if st.button("Fetch Step Data", key="fetch_steps"):
+                    try:
+                        steps = fetch_step_count(st.session_state.fit_creds, days=1)
+                        st.session_state.fit_steps = steps
+                        st.success(f"Today's steps: {steps}")
+                    except Exception as e:
+                        st.error(f"Failed to fetch steps: {e}")
+                
+                if st.button("Disconnect Google Fit", key="disconnect_fit"):
+                    if os.path.exists('token.json'):
+                        os.remove('token.json')
+                    st.session_state.fit_creds = None
+                    st.session_state.fit_steps = None
+                    st.success("Google Fit disconnected")
+                    st.rerun()
+
+
     if not getattr(st.session_state.assistant, "client", None):
         st.warning("Enter API keys in sidebar to continue.")
         return
@@ -152,6 +212,13 @@ def main():
         return
 
     # --------------------------
+    # Display Google Fit data if available
+    # --------------------------
+    if st.session_state.get("fit_steps") is not None:
+        st.sidebar.markdown("---")
+        st.sidebar.metric("📊 Today's Steps", st.session_state.fit_steps)
+
+    # --------------------------
     # Logging UI
     # --------------------------
     st.subheader("📊 Log Your Health Data")
@@ -165,6 +232,7 @@ def main():
                 st.session_state.user_id, exercise, diet, sugar_level
             )
             st.success("Health data logged!")
+
 
     # --------------------------
     # Chat + Voice
