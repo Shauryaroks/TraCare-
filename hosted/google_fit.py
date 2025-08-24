@@ -4,6 +4,23 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+import toml
+import json
+from google.oauth2.credentials import Credentials
+
+CONFIG_FILE = "config.toml"
+config = toml.load(CONFIG_FILE)
+
+# Load API keys
+ASSEMBLY_API_KEY = config.get("ASSEMBLYAI_API_KEY")
+GENAI_KEY = config.get("GENAI_KEY")
+MEM0_KEY = config.get("MEM0_KEY")
+SUTRA_KEY = config.get("SUTRA_KEY")
+
+# Load Google OAuth info
+GOOGLE_CLIENT_ID = config["GOOGLE_WEB"]["client_id"]
+GOOGLE_CLIENT_SECRET = config["GOOGLE_WEB"]["client_secret"]
+GOOGLE_REDIRECT_URI = config.get("GOOGLE_REDIRECT_URI", "http://localhost:8501/")
 
 # Scopes required to read fitness activity
 SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
