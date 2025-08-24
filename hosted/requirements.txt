@@ -1,7 +1,7 @@
 streamlit
 google-generativeai
 assemblyai
-mem0>=0.1.0
+mem0
 python-dotenv
 google-auth
 google-auth-oauthlib
