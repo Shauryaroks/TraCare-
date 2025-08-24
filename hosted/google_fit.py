@@ -1,89 +1,133 @@
-import os
 import datetime
+import os
+import tomli
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
-import toml
-import json
-from google.oauth2.credentials import Credentials
 
-CONFIG_FILE = "config.toml"
-config = toml.load(CONFIG_FILE)
+# --------------------------
+# Load credentials from TOML
+# --------------------------
+with open("config.toml", "rb") as f:
+    config = tomli.load(f)
 
-# Load API keys
-ASSEMBLY_API_KEY = config.get("ASSEMBLYAI_API_KEY")
-GENAI_KEY = config.get("GENAI_KEY")
-MEM0_KEY = config.get("MEM0_KEY")
-SUTRA_KEY = config.get("SUTRA_KEY")
-
-# Load Google OAuth info
-GOOGLE_CLIENT_ID = config["GOOGLE_WEB"]["client_id"]
-GOOGLE_CLIENT_SECRET = config["GOOGLE_WEB"]["client_secret"]
-GOOGLE_REDIRECT_URI = config.get("GOOGLE_REDIRECT_URI", "http://localhost:8501/")
-
-# Scopes required to read fitness activity
 SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
 
-REDIRECT_URI = 'http://localhost:8501'  # Change to your deployed URL if needed
+GOOGLE_WEB = config["GOOGLE_WEB"]
+REDIRECT_URI = GOOGLE_WEB["redirect_uris"][0]  # first redirect URI
 
+# Token storage
+TOKEN_FILE = 'token.json'
+
+
+# --------------------------
+# Authentication Functions
+# --------------------------
 def authenticate_google_fit():
+    """
+    Load existing credentials from token.json if available, refresh if expired.
+    Returns Credentials object or None.
+    """
     creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if os.path.exists(TOKEN_FILE):
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        with open('token.json', 'w') as token:
+        with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
     return creds
 
+
 def get_auth_url():
-    flow = Flow.from_client_secrets_file(
-        'credentials.json',
+    """
+    Returns the Google Fit OAuth authorization URL.
+    """
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_WEB["client_id"],
+                "project_id": GOOGLE_WEB["project_id"],
+                "auth_uri": GOOGLE_WEB["auth_uri"],
+                "token_uri": GOOGLE_WEB["token_uri"],
+                "auth_provider_x509_cert_url": GOOGLE_WEB["auth_provider_x509_cert_url"],
+                "client_secret": GOOGLE_WEB["client_secret"],
+                "redirect_uris": GOOGLE_WEB["redirect_uris"],
+                "javascript_origins": GOOGLE_WEB["javascript_origins"]
+            }
+        },
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
     auth_url, _ = flow.authorization_url(prompt='consent')
     return auth_url
 
+
 def fetch_token(code):
-    flow = Flow.from_client_secrets_file(
-        'credentials.json',
+    """
+    Exchange authorization code for credentials.
+    """
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": GOOGLE_WEB["client_id"],
+                "project_id": GOOGLE_WEB["project_id"],
+                "auth_uri": GOOGLE_WEB["auth_uri"],
+                "token_uri": GOOGLE_WEB["token_uri"],
+                "auth_provider_x509_cert_url": GOOGLE_WEB["auth_provider_x509_cert_url"],
+                "client_secret": GOOGLE_WEB["client_secret"],
+                "redirect_uris": GOOGLE_WEB["redirect_uris"],
+                "javascript_origins": GOOGLE_WEB["javascript_origins"]
+            }
+        },
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
     flow.fetch_token(code=code)
-    return flow.credentials
+    creds = flow.credentials
+    # Save token for future sessions
+    with open(TOKEN_FILE, 'w') as token:
+        token.write(creds.to_json())
+    return creds
 
+
+# --------------------------
+# Fetch Step Count
+# --------------------------
 def fetch_step_count(creds, days=1):
+    """
+    Fetch step count from Google Fit for the last 'days' days.
+    Returns integer total steps.
+    """
     service = build('fitness', 'v1', credentials=creds)
 
-    # Define the data source for step count
     data_source_id = "derived:com.google.step_count.delta:com.google.android.gms:estimated_steps"
 
-    # Define start and end time in nanoseconds since epoch
     end_time = int(datetime.datetime.utcnow().timestamp() * 1e9)
     start_time = int((datetime.datetime.utcnow() - datetime.timedelta(days=days)).timestamp() * 1e9)
 
-    # Fetch step count data from Google Fit
-    dataset = f"{start_time}-{end_time}"
-    dataset_response = service.users().dataSources(). \
-        datasets().get(userId='me', dataSourceId=data_source_id, datasetId=dataset).execute()
+    dataset_id = f"{start_time}-{end_time}"
+    response = service.users().dataSources().datasets().get(
+        userId='me',
+        dataSourceId=data_source_id,
+        datasetId=dataset_id
+    ).execute()
 
     total_steps = 0
-    points = dataset_response.get('point', [])
-    if not points:
-        return 0
+    points = response.get('point', [])
     for point in points:
         for field in point.get('value', []):
             total_steps += field.get('intVal', 0)
-
     return total_steps
 
+
+# --------------------------
+# Example Usage
+# --------------------------
 if __name__ == "__main__":
     creds = authenticate_google_fit()
     if creds:
         steps = fetch_step_count(creds)
         print(f"Steps in last 24 hours: {steps}")
     else:
-        print("Run the Streamlit app for authentication.")
+        print("No credentials found. Run the Streamlit app and authorize Google Fit first.")
