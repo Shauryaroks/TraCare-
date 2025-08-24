@@ -1,6 +1,8 @@
 import datetime
-import os
 import tomli
+import tomli_w
+import os
+import json
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
@@ -9,35 +11,57 @@ from google.auth.transport.requests import Request
 # --------------------------
 # Load credentials from TOML
 # --------------------------
-with open("config.toml", "rb") as f:
-    config = tomli.load(f)
+CONFIG_FILE = "config.toml"
 
+def load_config():
+    with open(CONFIG_FILE, "rb") as f:
+        return tomli.load(f)
+
+def save_config(config):
+    with open(CONFIG_FILE, "wb") as f:
+        tomli_w.dump(config, f)
+
+config = load_config()
 SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
 
 GOOGLE_WEB = config["GOOGLE_WEB"]
-REDIRECT_URI = GOOGLE_WEB["redirect_uris"][0]  # first redirect URI
-
-# Token storage
-TOKEN_FILE = 'token.json'
-
+REDIRECT_URI = GOOGLE_WEB["redirect_uris"][0]  # use first redirect URI
 
 # --------------------------
 # Authentication Functions
 # --------------------------
 def authenticate_google_fit():
     """
-    Load existing credentials from token.json if available, refresh if expired.
-    Returns Credentials object or None.
+    Load existing credentials from TOML token section if available,
+    refresh if expired. Returns Credentials object or None.
     """
+    token_data = config.get("TOKEN", {})
     creds = None
-    if os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
+    if token_data:
+        creds = Credentials(
+            token=token_data.get("token"),
+            refresh_token=token_data.get("refresh_token"),
+            token_uri=token_data.get("token_uri"),
+            client_id=token_data.get("client_id"),
+            client_secret=token_data.get("client_secret"),
+            scopes=token_data.get("scopes"),
+        )
+
+    # Refresh if expired
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
-        with open(TOKEN_FILE, 'w') as token:
-            token.write(creds.to_json())
+        # Save refreshed token back to TOML
+        config["TOKEN"] = {
+            "token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "token_uri": creds.token_uri,
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+            "scopes": creds.scopes,
+            "expiry": str(creds.expiry),
+        }
+        save_config(config)
     return creds
-
 
 def get_auth_url():
     """
@@ -47,7 +71,7 @@ def get_auth_url():
         {
             "web": {
                 "client_id": GOOGLE_WEB["client_id"],
-                "project_id": GOOGLE_WEB["project_id"],
+                "project_id": GOOGLE_WEB.get("project_id", ""),
                 "auth_uri": GOOGLE_WEB["auth_uri"],
                 "token_uri": GOOGLE_WEB["token_uri"],
                 "auth_provider_x509_cert_url": GOOGLE_WEB["auth_provider_x509_cert_url"],
@@ -60,36 +84,26 @@ def get_auth_url():
         redirect_uri=REDIRECT_URI
     )
     auth_url, _ = flow.authorization_url(prompt='consent')
-    return auth_url
+    return auth_url, flow
 
-
-def fetch_token(code):
+def fetch_token(flow, code):
     """
-    Exchange authorization code for credentials.
+    Exchange authorization code for credentials and save to TOML.
     """
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": GOOGLE_WEB["client_id"],
-                "project_id": GOOGLE_WEB["project_id"],
-                "auth_uri": GOOGLE_WEB["auth_uri"],
-                "token_uri": GOOGLE_WEB["token_uri"],
-                "auth_provider_x509_cert_url": GOOGLE_WEB["auth_provider_x509_cert_url"],
-                "client_secret": GOOGLE_WEB["client_secret"],
-                "redirect_uris": GOOGLE_WEB["redirect_uris"],
-                "javascript_origins": GOOGLE_WEB["javascript_origins"]
-            }
-        },
-        scopes=SCOPES,
-        redirect_uri=REDIRECT_URI
-    )
     flow.fetch_token(code=code)
     creds = flow.credentials
-    # Save token for future sessions
-    with open(TOKEN_FILE, 'w') as token:
-        token.write(creds.to_json())
+    # Save token to TOML
+    config["TOKEN"] = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": creds.scopes,
+        "expiry": str(creds.expiry),
+    }
+    save_config(config)
     return creds
-
 
 # --------------------------
 # Fetch Step Count
@@ -119,7 +133,6 @@ def fetch_step_count(creds, days=1):
         for field in point.get('value', []):
             total_steps += field.get('intVal', 0)
     return total_steps
-
 
 # --------------------------
 # Example Usage
