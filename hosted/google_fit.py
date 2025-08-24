@@ -15,7 +15,7 @@ CONFIG_FILE = "config.toml"
 
 def load_config():
     with open(CONFIG_FILE, "rb") as f:
-        return tomli.load(f)
+        return tomllib.load(f)
 
 def save_config(config):
     with open(CONFIG_FILE, "wb") as f:
