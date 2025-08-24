@@ -11,6 +11,9 @@ import tomli
 
 with open("config.toml", "rb") as f:
     config = tomli.load(f)
+def load_config():
+    with open(CONFIG_FILE, "rb") as f:
+        return tomllib.load(f)
 
 # --------------------------
 # AssemblyAI for transcription
