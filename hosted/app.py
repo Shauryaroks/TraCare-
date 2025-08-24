@@ -1,22 +1,23 @@
+%%writefile app.py
 import os
 import json
 import requests
 import streamlit as st
 import google.generativeai as genai
 from mem0 import MemoryClient
-from dotenv import load_dotenv
-load_dotenv()  # Loads variables from .env into environment
-from google_fit import authenticate_google_fit, fetch_step_count, fetch_token, get_auth_url
-import tomli
+# Remove dotenv import - no longer needed!
+# from dotenv import load_dotenv
+# load_dotenv()  # Not needed with Streamlit secrets
 
-with open("config.toml", "rb") as f:
-    config = tomli.load(f)
+from google_fit import authenticate_google_fit, fetch_step_count, fetch_token, get_auth_url
+
 # --------------------------
 # AssemblyAI for transcription
 # --------------------------
 import assemblyai as aai
 
-ASSEMBLY_API_KEY = config["ASSEMBLYAI_API_KEY"]
+# Use Streamlit secrets instead of os.getenv()
+ASSEMBLY_API_KEY = st.secrets["ASSEMBLYAI_API_KEY"]
 aai.settings.api_key = ASSEMBLY_API_KEY
 SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
 
@@ -50,12 +51,16 @@ class DiabetesHealthAssistant:
 
     def initialize_apis(self):
         try:
-            genai.configure(api_key=config["GENAI_KEY"])
+            # Use Streamlit secrets for all API keys
+            genai.configure(api_key=st.secrets["GENAI_KEY"])
             self.gemini = genai.GenerativeModel("gemini-1.5-flash")
             self.gemini_logs = genai.GenerativeModel("gemini-1.5-pro")
-            self.client = MemoryClient(api_key=config["MEM0_KEY"])
-            self.sutra_api_key = config["SUTRA_KEY"]
+            self.client = MemoryClient(api_key=st.secrets["MEM0_KEY"])
+            self.sutra_api_key = st.secrets["SUTRA_KEY"]
             return True
+        except KeyError as e:
+            st.error(f"Missing secret: {e}. Please add it to your Streamlit secrets.")
+            return False
         except Exception as e:
             st.error(f"API init failed: {e}")
             return False
@@ -199,7 +204,8 @@ def main():
 
 
     if not getattr(st.session_state.assistant, "client", None):
-        st.warning("Enter API keys in sidebar to continue.")
+        st.warning("⚠️ API configuration incomplete. Please check your secrets and initialize.")
+        st.info("💡 Make sure all required secrets are set in your Streamlit app settings.")
         return
 
     # User login/registration
