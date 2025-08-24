@@ -7,13 +7,17 @@ from mem0 import MemoryClient
 from dotenv import load_dotenv
 load_dotenv()  # Loads variables from .env into environment
 from google_fit import authenticate_google_fit, fetch_step_count, fetch_token, get_auth_url
+import tomli
+
+with open("config.toml", "rb") as f:
+    config = tomli.load(f)
 
 # --------------------------
 # AssemblyAI for transcription
 # --------------------------
 import assemblyai as aai
 
-ASSEMBLY_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")  
+ASSEMBLY_API_KEY = config["ASSEMBLYAI_API_KEY"]
 aai.settings.api_key = ASSEMBLY_API_KEY
 SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
 
@@ -47,11 +51,11 @@ class DiabetesHealthAssistant:
 
     def initialize_apis(self):
         try:
-            genai.configure(api_key=os.getenv("GENAI_KEY"))
+            genai.configure(api_key=config["GENAI_KEY"])
             self.gemini = genai.GenerativeModel("gemini-1.5-flash")
             self.gemini_logs = genai.GenerativeModel("gemini-1.5-pro")
-            self.client = MemoryClient(api_key=os.getenv("MEM0_KEY"))
-            self.sutra_api_key = os.getenv("SUTRA_KEY")
+            self.client = MemoryClient(api_key=config["MEM0_KEY"])
+            self.sutra_api_key = config["SUTRA_KEY"]
             return True
         except Exception as e:
             st.error(f"API init failed: {e}")
