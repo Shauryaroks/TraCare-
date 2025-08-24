@@ -11,20 +11,11 @@ from google.auth.transport.requests import Request
 # --------------------------
 # Load credentials from TOML
 # --------------------------
-CONFIG_FILE = "config.toml"
 
-def load_config():
-    with open(CONFIG_FILE, "rb") as f:
-        return tomllib.load(f)
 
-def save_config(config):
-    with open(CONFIG_FILE, "wb") as f:
-        tomli_w.dump(config, f)
-
-config = load_config()
 SCOPES = ['https://www.googleapis.com/auth/fitness.activity.read']
 
-GOOGLE_WEB = config["GOOGLE_WEB"]
+GOOGLE_WEB = 
 REDIRECT_URI = GOOGLE_WEB["redirect_uris"][0]  # use first redirect URI
 
 # --------------------------
